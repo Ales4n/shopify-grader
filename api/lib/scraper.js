@@ -33,7 +33,7 @@ export function isHeadlessShopify(html, headers) {
 
 export async function fetchAndParse(url) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
     const response = await fetch(url, {

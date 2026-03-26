@@ -69,7 +69,8 @@ export default async function handler(req, res) {
 
     const apiKey = process.env.PAGESPEED_API_KEY;
 
-    // Run all checks in parallel
+    // Scraping is done. Now run HTML-based checks + PageSpeed API calls in parallel.
+    // Inside runPerformanceChecks, the two PageSpeed calls (mobile + desktop) also run in parallel.
     const [seoResult, perfResult, shopifyResult, contentResult] = await Promise.all([
       Promise.resolve(runSeoChecks($, html)),
       runPerformanceChecks($, html, finalUrl || url, apiKey),
