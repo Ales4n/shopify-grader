@@ -1,8 +1,8 @@
 const CATEGORY_META = {
-  seo:         { label: 'SEO', icon: '🔍', color: '#6366f1' },
-  performance: { label: 'Performance', icon: '⚡', color: '#f59e0b' },
-  shopify:     { label: 'Shopify Config', icon: '🛒', color: '#10b981' },
-  content:     { label: 'Content', icon: '✍️', color: '#ec4899' },
+  seo:         { label: 'SEO',            desc: 'Title, meta, structure, schema',   color: '#635bff' },
+  performance: { label: 'Performance',    desc: 'PageSpeed, LCP, CLS, mobile',      color: '#00d1b2' },
+  shopify:     { label: 'Shopify Config', desc: 'Apps, trust, navigation, legal',   color: '#22c55e' },
+  content:     { label: 'Content',        desc: 'About, reviews, blog presence',    color: '#ec4899' },
 };
 
 const GRADE_LABELS = {
@@ -99,8 +99,10 @@ function renderCategoryCards(categories) {
     return `
       <div class="cat-card" data-category="${key}">
         <div class="cat-card-header">
-          <span class="cat-card-icon">${meta.icon}</span>
-          <span class="cat-card-name">${meta.label}</span>
+          <div class="cat-card-label-wrap">
+            <span class="cat-card-label">${meta.label}</span>
+            <span class="cat-card-desc">${meta.desc}</span>
+          </div>
           <span class="cat-card-score" style="color:${color}">${cat.score}<span class="cat-card-max">/${cat.max}</span></span>
         </div>
         <div class="cat-bar-wrap">
@@ -123,9 +125,7 @@ function escHtml(str) {
 }
 
 function statusIcon(status) {
-  if (status === 'pass') return '<span class="check-icon pass">✅</span>';
-  if (status === 'warn') return '<span class="check-icon warn">⚠️</span>';
-  return '<span class="check-icon fail">❌</span>';
+  return `<span class="check-icon ${status}"></span>`;
 }
 
 function renderChecks(categories) {
@@ -134,7 +134,7 @@ function renderChecks(categories) {
     const meta = CATEGORY_META[key];
     return `
       <div class="checks-group" id="checks-${key}" hidden>
-        <h3 class="checks-group-title">${meta.icon} ${meta.label} — Detailed Checks</h3>
+        <h3 class="checks-group-title">${meta.label} — Detailed Checks</h3>
         <div class="checks-list">
           ${cat.checks.map(check => `
             <div class="check-item check-${check.status}">

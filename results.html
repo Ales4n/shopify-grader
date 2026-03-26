@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Store Report — Shopify Store Grader</title>
   <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="results-page">
@@ -13,28 +16,27 @@
   <div id="loadingScreen" class="loading-screen">
     <div class="loading-inner">
       <div class="loading-logo">
-        <span class="logo-icon">⚡</span>
-        <span class="logo-text">Shopify Grader</span>
+        <span class="logo-wordmark">Shopify<span class="accent">Grader</span></span>
       </div>
       <div class="loading-steps">
         <div class="loading-step" id="step-fetch">
-          <span class="step-icon pending">○</span>
+          <span class="step-icon pending"></span>
           <span class="step-label">Fetching store data</span>
         </div>
         <div class="loading-step" id="step-seo">
-          <span class="step-icon pending">○</span>
+          <span class="step-icon pending"></span>
           <span class="step-label">Analyzing SEO</span>
         </div>
         <div class="loading-step" id="step-perf">
-          <span class="step-icon pending">○</span>
+          <span class="step-icon pending"></span>
           <span class="step-label">Checking performance</span>
         </div>
         <div class="loading-step" id="step-shopify">
-          <span class="step-icon pending">○</span>
+          <span class="step-icon pending"></span>
           <span class="step-label">Auditing Shopify config</span>
         </div>
         <div class="loading-step" id="step-content">
-          <span class="step-icon pending">○</span>
+          <span class="step-icon pending"></span>
           <span class="step-label">Reviewing content signals</span>
         </div>
       </div>
@@ -59,8 +61,7 @@
   <div id="resultsScreen" hidden>
     <header class="results-header">
       <a href="/" class="results-logo">
-        <span class="logo-icon">⚡</span>
-        <span class="logo-text">Shopify Grader</span>
+        <span class="logo-wordmark">Shopify<span class="accent">Grader</span></span>
       </a>
       <button class="pdf-btn" id="pdfBtn" onclick="window.print()">Download PDF</button>
     </header>
@@ -75,8 +76,8 @@
         <div class="score-section">
           <div class="score-gauge-wrap">
             <svg class="score-gauge" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-              <circle class="gauge-bg" cx="100" cy="100" r="80" fill="none" stroke-width="16"/>
-              <circle class="gauge-fill" id="gaugeFill" cx="100" cy="100" r="80" fill="none" stroke-width="16"
+              <circle class="gauge-bg" cx="100" cy="100" r="80" fill="none" stroke-width="12"/>
+              <circle class="gauge-fill" id="gaugeFill" cx="100" cy="100" r="80" fill="none" stroke-width="12"
                 stroke-linecap="round"
                 transform="rotate(-90 100 100)"
                 stroke-dasharray="502"
@@ -105,17 +106,15 @@
 
       <!-- CTA -->
       <div class="cta-section">
-        <div class="cta-inner">
-          <h2 class="cta-title">This report covers what's visible from outside.</h2>
-          <p class="cta-subtitle">Your email flows, checkout funnel, backend apps, and conversion data need a deeper look.</p>
-          <div class="cta-buttons">
-            <a href="https://calendly.com/sansossiobss" target="_blank" rel="noopener" class="cta-primary">
-              Book a free 30-min audit call
-            </a>
-            <a href="mailto:sansossiobss@gmail.com" class="cta-secondary">
-              Or email me directly
-            </a>
-          </div>
+        <h2 class="cta-title">This report covers what's visible from outside.</h2>
+        <p class="cta-subtitle">Your email flows, checkout funnel, backend apps, and conversion data need a deeper look.</p>
+        <div class="cta-buttons">
+          <a href="https://calendly.com/sansossiobss" target="_blank" rel="noopener" class="cta-primary">
+            Book a free 30-min audit call
+          </a>
+          <a href="mailto:sansossiobss@gmail.com" class="cta-secondary">
+            Or email me directly
+          </a>
         </div>
       </div>
     </main>
