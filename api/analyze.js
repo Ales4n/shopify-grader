@@ -1,4 +1,4 @@
-import { fetchAndParse, isShopifyStore } from './lib/scraper.js';
+import { fetchAndParse, isShopifyStore, isHeadlessShopify } from './lib/scraper.js';
 import { runSeoChecks } from './lib/seo-checks.js';
 import { runPerformanceChecks } from './lib/performance.js';
 import { runShopifyChecks } from './lib/shopify-checks.js';
@@ -51,11 +51,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { html, $, finalUrl } = await fetchAndParse(url);
+    const { html, $, finalUrl, headers } = await fetchAndParse(url);
 
     if (!isShopifyStore(html)) {
+      if (isHeadlessShopify(html, headers)) {
+        return res.status(422).json({
+          error: 'This appears to be a headless Shopify store (Hydrogen/custom frontend). Our tool currently only analyzes standard Shopify themes. Headless stores require a manual audit.',
+          isShopify: true,
+          isHeadless: true
+        });
+      }
       return res.status(422).json({
-        error: "This doesn't appear to be a Shopify store. This tool only works with Shopify. Note: stores using headless/Hydrogen setups may not be detected.",
+        error: "This doesn't appear to be a Shopify store. This tool only works with Shopify.",
         isShopify: false
       });
     }

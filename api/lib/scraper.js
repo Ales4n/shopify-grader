@@ -15,6 +15,22 @@ export function isShopifyStore(html) {
   return indicators.some(indicator => html.includes(indicator));
 }
 
+export function isHeadlessShopify(html, headers) {
+  const headlessIndicators = [
+    'shopify.com/storefront',
+    'shopify-storefront',
+    'shopify-pay',
+    'shop.app',
+    'shopifycloud.com',
+    '@shopify/hydrogen',
+    'shopify-analytics',
+    'shopify_pay_integration',
+  ];
+  const headersStr = headers ? JSON.stringify(Object.fromEntries(headers)) : '';
+  const combined = html + headersStr;
+  return headlessIndicators.some(indicator => combined.toLowerCase().includes(indicator.toLowerCase()));
+}
+
 export async function fetchAndParse(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -47,7 +63,7 @@ export async function fetchAndParse(url) {
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    return { html, $, finalUrl: response.url };
+    return { html, $, finalUrl: response.url, headers: response.headers };
   } catch (err) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') {
