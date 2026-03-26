@@ -33,7 +33,15 @@ export async function fetchAndParse(url) {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const status = response.status;
+      let msg;
+      if (status === 429) msg = 'This store is blocking our requests. Try again in a few minutes.';
+      else if (status === 403) msg = 'This store is blocking external access.';
+      else if (status === 503 || status === 500) msg = 'The store is temporarily unavailable. Try again later.';
+      else msg = `Could not reach the store (HTTP ${status}).`;
+      const err = new Error(msg);
+      err.isUserFacing = true;
+      throw err;
     }
 
     const html = await response.text();

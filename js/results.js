@@ -114,6 +114,14 @@ function renderCategoryCards(categories) {
   }).join('');
 }
 
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function statusIcon(status) {
   if (status === 'pass') return '<span class="check-icon pass">✅</span>';
   if (status === 'warn') return '<span class="check-icon warn">⚠️</span>';
@@ -136,8 +144,8 @@ function renderChecks(categories) {
                   <div class="check-name">${check.name}
                     <span class="check-pts">${check.score}/${check.maxScore} pts</span>
                   </div>
-                  <div class="check-details">${check.details || ''}</div>
-                  ${check.recommendation ? `<div class="check-rec">💡 ${check.recommendation}</div>` : ''}
+                  <div class="check-details">${escHtml(check.details || '')}</div>
+                  ${check.recommendation ? `<div class="check-rec">💡 ${escHtml(check.recommendation)}</div>` : ''}
                 </div>
               </div>
             </div>

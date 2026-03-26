@@ -55,7 +55,7 @@ export default async function handler(req, res) {
 
     if (!isShopifyStore(html)) {
       return res.status(422).json({
-        error: "This doesn't appear to be a Shopify store. This tool only works with Shopify.",
+        error: "This doesn't appear to be a Shopify store. This tool only works with Shopify. Note: stores using headless/Hydrogen setups may not be detected.",
         isShopify: false
       });
     }
@@ -100,6 +100,9 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('Analysis error:', err);
+    if (err.isUserFacing) {
+      return res.status(422).json({ error: err.message });
+    }
     if (err.message?.includes('timed out') || err.message?.includes('AbortError')) {
       return res.status(504).json({ error: 'Analysis is taking longer than expected. Try again in a minute.' });
     }
