@@ -71,11 +71,13 @@ export default async function handler(req, res) {
 
     // Scraping is done. Now run HTML-based checks + PageSpeed API calls in parallel.
     // Inside runPerformanceChecks, the two PageSpeed calls (mobile + desktop) also run in parallel.
+    const openAiKey = process.env.OPENAI_API_KEY;
+
     const [seoResult, perfResult, shopifyResult, contentResult] = await Promise.all([
       Promise.resolve(runSeoChecks($, html)),
       runPerformanceChecks($, html, finalUrl || url, apiKey),
       Promise.resolve(runShopifyChecks($, html)),
-      Promise.resolve(runContentChecks($, html)),
+      runContentChecks($, html, finalUrl || url, openAiKey),
     ]);
 
     const categories = {
