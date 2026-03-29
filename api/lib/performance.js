@@ -2,22 +2,36 @@ import fetch from 'node-fetch';
 
 const PAGESPEED_API = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 
-async function callPageSpeed(url, strategy, apiKey) {
-  const params = new URLSearchParams({ url, strategy, category: 'performance' });
-  if (apiKey) params.set('key', apiKey);
-  const res = await fetch(`${PAGESPEED_API}?${params}`);
-  if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
-  return res.json();
+// Only request the 3 fields we actually use — reduces response from ~300KB to ~1KB
+const PAGESPEED_FIELDS = [
+  'lighthouseResult/categories/performance/score',
+  'lighthouseResult/audits/largest-contentful-paint/numericValue',
+  'lighthouseResult/audits/cumulative-layout-shift/numericValue',
+].join(',');
+
+export async function callPageSpeed(url, strategy, apiKey) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000); // 20s hard timeout
+  try {
+    const params = new URLSearchParams({ url, strategy, category: 'performance', fields: PAGESPEED_FIELDS });
+    if (apiKey) params.set('key', apiKey);
+    const res = await fetch(`${PAGESPEED_API}?${params}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getAuditValue(data, auditId) {
   return data?.lighthouseResult?.audits?.[auditId];
 }
 
-export async function runPerformanceChecks($, html, url, apiKey) {
+// mobilePromise / desktopPromise: optional pre-started PageSpeed promises (started before scrape)
+export async function runPerformanceChecks($, url, apiKey, mobilePromise = null, desktopPromise = null) {
   const checks = [];
 
-  // 7. Viewport meta (3 pts) — no API needed
+  // Viewport meta (3 pts) — HTML only, instant
   const viewport = $('meta[name="viewport"]').attr('content') || '';
   let vpCheck = { id: 'perf_viewport', name: 'Mobile viewport meta', maxScore: 3 };
   if (viewport.includes('width=device-width')) {
@@ -29,7 +43,7 @@ export async function runPerformanceChecks($, html, url, apiKey) {
   }
   checks.push(vpCheck);
 
-  // HTTPS check (2 pts) — no API needed
+  // HTTPS (2 pts) — URL only, instant
   let httpsCheck = { id: 'perf_https', name: 'HTTPS', maxScore: 2 };
   if (url.startsWith('https://')) {
     httpsCheck = { ...httpsCheck, status: 'pass', score: 2, details: 'Site is served over HTTPS.', recommendation: null };
@@ -38,11 +52,9 @@ export async function runPerformanceChecks($, html, url, apiKey) {
   }
   checks.push(httpsCheck);
 
-  // Image optimization check (4 pts) — from HTML
+  // Image optimization (4 pts) — HTML only, instant
   const imgs = $('img');
-  let lazyCount = 0;
-  let modernFormatCount = 0;
-  let totalCheckedImgs = 0;
+  let lazyCount = 0, modernFormatCount = 0, totalCheckedImgs = 0;
   imgs.each((_, el) => {
     const src = $(el).attr('src') || $(el).attr('data-src') || '';
     const loading = $(el).attr('loading');
@@ -66,22 +78,18 @@ export async function runPerformanceChecks($, html, url, apiKey) {
   }
   checks.push(imgOptCheck);
 
-  // PageSpeed API checks
-  let mobileData = null;
-  let desktopData = null;
-  let apiError = null;
-
+  // PageSpeed API — await pre-started promises or start now
+  let mobileData = null, desktopData = null, apiError = null;
   try {
     [mobileData, desktopData] = await Promise.all([
-      callPageSpeed(url, 'mobile', apiKey),
-      callPageSpeed(url, 'desktop', apiKey),
+      mobilePromise || callPageSpeed(url, 'mobile', apiKey),
+      desktopPromise || callPageSpeed(url, 'desktop', apiKey),
     ]);
   } catch (err) {
     apiError = err.message;
   }
 
   if (apiError || !mobileData) {
-    // Fallback: no PageSpeed data
     const fallback = (id, name, max) => ({
       id, name, status: 'warn', score: Math.floor(max / 2), maxScore: max,
       details: 'PageSpeed data unavailable — scored at 50%.', recommendation: null
