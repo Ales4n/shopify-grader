@@ -1,6 +1,6 @@
 import { fetchAndParse, isShopifyStore, isHeadlessShopify } from './lib/scraper.js';
 import { runSeoChecks } from './lib/seo-checks.js';
-import { runPerformanceChecks, callPageSpeed } from './lib/performance.js';
+import { runPerformanceChecks } from './lib/performance.js';
 import { runShopifyChecks } from './lib/shopify-checks.js';
 import { runContentChecks } from './lib/content-checks.js';
 import { aggregateScores } from './lib/scoring.js';
@@ -54,11 +54,6 @@ export default async function handler(req, res) {
   const openAiKey = process.env.OPENAI_API_KEY;
 
   try {
-    // Start PageSpeed calls immediately — they only need the URL, not the HTML.
-    // This runs in parallel with the scrape, saving 5-12 seconds on slow stores.
-    const mobilePageSpeedPromise = apiKey ? callPageSpeed(url, 'mobile', apiKey) : null;
-    const desktopPageSpeedPromise = apiKey ? callPageSpeed(url, 'desktop', apiKey) : null;
-
     const { html, $, finalUrl, headers } = await fetchAndParse(url);
 
     if (!isShopifyStore(html)) {
@@ -77,7 +72,7 @@ export default async function handler(req, res) {
 
     const [seoResult, perfResult, shopifyResult, contentResult] = await Promise.all([
       Promise.resolve(runSeoChecks($, html)),
-      runPerformanceChecks($, finalUrl || url, apiKey, mobilePageSpeedPromise, desktopPageSpeedPromise),
+      runPerformanceChecks($, finalUrl || url, apiKey),
       Promise.resolve(runShopifyChecks($, html)),
       runContentChecks($, html, finalUrl || url, openAiKey),
     ]);
@@ -103,7 +98,6 @@ export default async function handler(req, res) {
       meta: {
         theme: shopifyResult.meta?.theme || null,
         mobileScore: perfResult.meta?.mobileScore ?? null,
-        desktopScore: perfResult.meta?.desktopScore ?? null,
         lcp: perfResult.meta?.lcp ?? null,
         cls: perfResult.meta?.cls ?? null,
         pageSpeedError: perfResult.meta?.apiError ?? null,

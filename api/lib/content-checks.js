@@ -29,7 +29,9 @@ async function callOpenAI(apiKey, systemPrompt, userContent) {
     });
     const data = await res.json();
     const raw = data.choices?.[0]?.message?.content?.trim() || '';
-    return JSON.parse(raw);
+    // GPT sometimes wraps JSON in markdown code fences — strip before parsing
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    return JSON.parse(cleaned);
   } finally {
     clearTimeout(timer);
   }
@@ -42,11 +44,18 @@ const aiFallback = (id, name, maxScore) => ({
 async function checkHomepageCopy(apiKey, $) {
   const base = { id: 'content_homepage_copy', name: 'Homepage copy quality', maxScore: 5 };
   try {
-    const text = $('body').text().replace(/\s+/g, ' ').trim().slice(0, 2000);
+    const bodyText = $('body').text()
+      .replace(/[\t\r\n]+/g, ' ')   // collapse tabs and newlines
+      .replace(/\s{2,}/g, ' ')      // collapse multiple spaces
+      .replace(/[^\x20-\x7E\u00C0-\u024F]/g, '') // strip non-latin/control chars
+      .trim()
+      .slice(0, 1500);
+    console.log('Homepage text length:', bodyText.length);
     const systemPrompt = 'You are an eCommerce copywriting expert. Analyze the following homepage text from a Shopify store. Score it from 0 to 5 based on: clarity of value proposition, persuasive language, brand voice consistency, and call-to-action presence. Respond ONLY with a JSON object: {"score": N, "status": "pass|warn|fail", "details": "one sentence summary", "recommendation": "one sentence actionable tip or null if score >= 4"}';
-    const result = await callOpenAI(apiKey, systemPrompt, text);
+    const result = await callOpenAI(apiKey, systemPrompt, bodyText);
     return { ...base, score: result.score, status: result.status, details: result.details, recommendation: result.recommendation ?? null };
-  } catch (_) {
+  } catch (err) {
+    console.log('Homepage AI error:', err);
     return aiFallback(base.id, base.name, base.maxScore);
   }
 }

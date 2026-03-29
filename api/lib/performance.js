@@ -2,34 +2,23 @@ import fetch from 'node-fetch';
 
 const PAGESPEED_API = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 
-// Only request the 3 fields we actually use — reduces response from ~300KB to ~1KB
-const PAGESPEED_FIELDS = [
-  'lighthouseResult/categories/performance/score',
-  'lighthouseResult/audits/largest-contentful-paint/numericValue',
-  'lighthouseResult/audits/cumulative-layout-shift/numericValue',
-].join(',');
-
 export async function callPageSpeed(url, strategy, apiKey) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000); // 20s hard timeout
-  try {
-    const params = new URLSearchParams({ url, strategy, category: 'performance', fields: PAGESPEED_FIELDS });
-    if (apiKey) params.set('key', apiKey);
-    const res = await fetch(`${PAGESPEED_API}?${params}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
-    return res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  const params = new URLSearchParams({ url, strategy, category: 'performance' });
+  if (apiKey) params.set('key', apiKey);
+  const res = await fetch(`${PAGESPEED_API}?${params}`);
+  if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
+  return res.json();
 }
 
 function getAuditValue(data, auditId) {
   return data?.lighthouseResult?.audits?.[auditId];
 }
 
-// mobilePromise / desktopPromise: optional pre-started PageSpeed promises (started before scrape)
-export async function runPerformanceChecks($, url, apiKey, mobilePromise = null, desktopPromise = null) {
+export async function runPerformanceChecks($, url, apiKey) {
   const checks = [];
+
+  console.log('PageSpeed API key exists:', !!apiKey);
+  console.log('PageSpeed URL:', url);
 
   // Viewport meta (3 pts) — HTML only, instant
   const viewport = $('meta[name="viewport"]').attr('content') || '';
@@ -78,15 +67,12 @@ export async function runPerformanceChecks($, url, apiKey, mobilePromise = null,
   }
   checks.push(imgOptCheck);
 
-  // PageSpeed API — await pre-started promises or start now
-  let mobileData = null, desktopData = null, apiError = null;
+  let mobileData = null, apiError = null;
   try {
-    [mobileData, desktopData] = await Promise.all([
-      mobilePromise || callPageSpeed(url, 'mobile', apiKey),
-      desktopPromise || callPageSpeed(url, 'desktop', apiKey),
-    ]);
+    mobileData = await callPageSpeed(url, 'mobile', apiKey);
   } catch (err) {
     apiError = err.message;
+    console.log('PageSpeed API error:', err.message);
   }
 
   if (apiError || !mobileData) {
@@ -95,7 +81,6 @@ export async function runPerformanceChecks($, url, apiKey, mobilePromise = null,
       details: 'PageSpeed data unavailable — scored at 50%.', recommendation: null
     });
     checks.push(fallback('perf_mobile', 'Mobile PageSpeed score', 5));
-    checks.push(fallback('perf_desktop', 'Desktop PageSpeed score', 3));
     checks.push(fallback('perf_lcp', 'Largest Contentful Paint (LCP)', 4));
     checks.push(fallback('perf_cls', 'Cumulative Layout Shift (CLS)', 4));
     const score = checks.reduce((s, c) => s + c.score, 0);
@@ -104,7 +89,6 @@ export async function runPerformanceChecks($, url, apiKey, mobilePromise = null,
   }
 
   const mobileScore = mobileData.lighthouseResult?.categories?.performance?.score * 100;
-  const desktopScore = desktopData.lighthouseResult?.categories?.performance?.score * 100;
 
   // Mobile score (5 pts)
   let mobileCheck = { id: 'perf_mobile', name: 'Mobile PageSpeed score', maxScore: 5 };
@@ -116,17 +100,6 @@ export async function runPerformanceChecks($, url, apiKey, mobilePromise = null,
     mobileCheck = { ...mobileCheck, status: 'fail', score: 0, details: `Mobile score: ${Math.round(mobileScore)}/100 — critical.`, recommendation: 'Mobile performance is critically low. Compress images, reduce JavaScript, and enable caching.' };
   }
   checks.push(mobileCheck);
-
-  // Desktop score (3 pts)
-  let desktopCheck = { id: 'perf_desktop', name: 'Desktop PageSpeed score', maxScore: 3 };
-  if (desktopScore >= 90) {
-    desktopCheck = { ...desktopCheck, status: 'pass', score: 3, details: `Desktop score: ${Math.round(desktopScore)}/100`, recommendation: null };
-  } else if (desktopScore >= 50) {
-    desktopCheck = { ...desktopCheck, status: 'warn', score: 2, details: `Desktop score: ${Math.round(desktopScore)}/100`, recommendation: `Desktop score is ${Math.round(desktopScore)}. Target 90+.` };
-  } else {
-    desktopCheck = { ...desktopCheck, status: 'fail', score: 0, details: `Desktop score: ${Math.round(desktopScore)}/100`, recommendation: 'Reduce render-blocking resources and minimize CSS/JS to improve desktop speed.' };
-  }
-  checks.push(desktopCheck);
 
   // LCP (4 pts)
   const lcpAudit = getAuditValue(mobileData, 'largest-contentful-paint');
@@ -164,7 +137,6 @@ export async function runPerformanceChecks($, url, apiKey, mobilePromise = null,
     score, max, checks,
     meta: {
       mobileScore: Math.round(mobileScore),
-      desktopScore: Math.round(desktopScore),
       lcp: lcpValue ? lcpValue.toFixed(1) : null,
       cls: clsValue !== null ? clsValue.toFixed(3) : null,
     }
