@@ -1,4 +1,5 @@
 import { fetchAndParse, isShopifyStore, isHeadlessShopify, looksLikeBotChallenge } from './lib/scraper.js';
+import { collectLinks } from './lib/detect-utils.js';
 import { runSeoChecks } from './lib/seo-checks.js';
 import { runPerformanceChecks } from './lib/performance.js';
 import { runShopifyChecks } from './lib/shopify-checks.js';
@@ -51,7 +52,9 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (req.method !== 'POST') {
+  // GET with ?url= is supported for debugging/manual testing; add &debug=1 to see
+  // the links the analyzer actually found (helps diagnose detection misses)
+  if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -60,7 +63,8 @@ export default async function handler(req, res) {
     try { body = JSON.parse(body); } catch (_) {}
   }
 
-  const rawUrl = body?.url;
+  const rawUrl = req.method === 'GET' ? req.query?.url : body?.url;
+  const debugMode = req.method === 'GET' && req.query?.debug === '1';
   if (!rawUrl || typeof rawUrl !== 'string') {
     return res.status(400).json({ error: 'Please enter a valid URL (e.g., mystore.com)' });
   }
@@ -120,6 +124,16 @@ export default async function handler(req, res) {
     };
 
     const { total, grade } = aggregateScores(categories);
+
+    if (debugMode) {
+      return res.status(200).json({
+        url: finalUrl || url,
+        isShopify: true,
+        analyzedAt: new Date().toISOString(),
+        score: { total, grade, categories },
+        debugLinks: collectLinks($).slice(0, 300),
+      });
+    }
 
     return res.status(200).json({
       url: finalUrl || url,
