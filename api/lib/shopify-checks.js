@@ -1,5 +1,8 @@
+import { normalizeText, collectLinks, linkMatches } from './detect-utils.js';
+
 export function runShopifyChecks($, html) {
   const checks = [];
+  const links = collectLinks($);
 
   // 1. Theme detected (2 pts)
   let theme = null;
@@ -31,12 +34,16 @@ export function runShopifyChecks($, html) {
   }
   checks.push(faviconCheck);
 
-  // 3. Trust elements (3 pts)
-  const bodyText = $('body').text().toLowerCase();
-  const bodyHtml = $('body').html() || '';
-  const paymentKeywords = ['visa', 'mastercard', 'paypal', 'american express', 'amex', 'stripe', 'apple pay', 'google pay', 'shop pay'];
-  const trustKeywords = ['secure checkout', 'ssl', 'money-back', 'money back', 'guaranteed', 'free returns', 'free shipping', 'satisfaction'];
-  const foundPayments = paymentKeywords.filter(k => bodyText.includes(k) || bodyHtml.toLowerCase().includes(k));
+  // 3. Trust elements (3 pts) — accents are normalized so "envío" matches "envio",
+  // and Spanish trust phrases count too (English-only keywords under-scored ES stores)
+  const bodyText = normalizeText($('body').text());
+  const bodyHtml = normalizeText($('body').html() || '');
+  const paymentKeywords = ['visa', 'mastercard', 'paypal', 'american express', 'amex', 'stripe', 'apple pay', 'google pay', 'shop pay', 'oxxo', 'mercado pago'];
+  const trustKeywords = [
+    'secure checkout', 'ssl', 'money-back', 'money back', 'guaranteed', 'free returns', 'free shipping', 'satisfaction',
+    'pago seguro', 'compra segura', 'envio gratis', 'envio gratuito', 'devoluciones gratis', 'garantia', 'satisfaccion'
+  ];
+  const foundPayments = paymentKeywords.filter(k => bodyText.includes(k) || bodyHtml.includes(k));
   const foundTrust = trustKeywords.filter(k => bodyText.includes(k));
   const trustScore = Math.min(3, Math.floor((foundPayments.length + foundTrust.length) / 2));
   let trustCheck = { id: 'shopify_trust', name: 'Trust elements', maxScore: 3 };
@@ -49,9 +56,18 @@ export function runShopifyChecks($, html) {
   }
   checks.push(trustCheck);
 
-  // 4. Navigation (4 pts)
-  const navLinks = $('nav a, header nav a, .site-nav a, #site-navigation a');
-  const topNavCount = navLinks.length;
+  // 4. Navigation (4 pts) — prefer the header nav and dedupe hrefs: themes duplicate
+  // the menu in mobile drawers and footers, which inflated the count and produced
+  // false "too many items" warnings
+  let navAnchors = $('header nav a[href]');
+  if (navAnchors.length === 0) navAnchors = $('nav a[href]').not('footer nav a[href]');
+  if (navAnchors.length === 0) navAnchors = $('.site-nav a[href], #site-navigation a[href]');
+  const uniqueNavHrefs = new Set();
+  navAnchors.each((_, el) => {
+    const href = ($(el).attr('href') || '').split('#')[0].replace(/\/+$/, '');
+    if (href && !href.startsWith('javascript:')) uniqueNavHrefs.add(href);
+  });
+  const topNavCount = uniqueNavHrefs.size;
   let navCheck = { id: 'shopify_nav', name: 'Navigation depth', maxScore: 4 };
   if (topNavCount >= 2 && topNavCount <= 7) {
     navCheck = { ...navCheck, status: 'pass', score: 4, details: `${topNavCount} navigation links found — clean and manageable.`, recommendation: null };
@@ -64,8 +80,9 @@ export function runShopifyChecks($, html) {
   }
   checks.push(navCheck);
 
-  // 5. Search (2 pts)
-  const hasSearchInput = $('input[type="search"], input[name="q"], form[action="/search"]').length > 0;
+  // 5. Search (2 pts) — form[action] matched only the exact "/search" path, missing
+  // locale-prefixed stores (/es/search) and search web components
+  const hasSearchInput = $('input[type="search"], input[name="q"], form[action*="search"], predictive-search, search-form, [data-predictive-search]').length > 0;
   const hasSearchLink = $('a[href*="/search"]').length > 0;
   let searchCheck = { id: 'shopify_search', name: 'Search functionality', maxScore: 2 };
   if (hasSearchInput) {
@@ -77,13 +94,20 @@ export function runShopifyChecks($, html) {
   }
   checks.push(searchCheck);
 
-  // 6. Legal pages (4 pts)
-  const footerHtml = ($('footer').html() || '').toLowerCase();
-  const allLinks = [];
-  $('a[href]').each((_, el) => allLinks.push(($(el).attr('href') || '').toLowerCase()));
-  const hasPrivacy = allLinks.some(l => l.includes('privacy') || l.includes('privacidad'));
-  const hasTerms = allLinks.some(l => l.includes('terms') || l.includes('terminos') || l.includes('condiciones'));
-  const hasRefund = allLinks.some(l => l.includes('refund') || l.includes('return') || l.includes('devolucion') || l.includes('reembolso'));
+  // 6. Legal pages (4 pts) — match link text too: stores link "Política de privacidad"
+  // from slugs like /pages/legal, which href-only matching missed
+  const hasPrivacy = linkMatches(links, {
+    hrefParts: ['privacy', 'privacidad'],
+    textParts: ['privacy', 'privacidad'],
+  });
+  const hasTerms = linkMatches(links, {
+    hrefParts: ['terms', 'terminos', 'condiciones', 'aviso-legal'],
+    textParts: ['terms', 'terminos', 'condiciones', 'aviso legal'],
+  });
+  const hasRefund = linkMatches(links, {
+    hrefParts: ['refund', 'return', 'devolucion', 'reembolso', 'garantia'],
+    textParts: ['refund', 'returns', 'devolucion', 'reembolso', 'cambios y devoluciones', 'garantia'],
+  });
   const legalCount = [hasPrivacy, hasTerms, hasRefund].filter(Boolean).length;
   let legalCheck = { id: 'shopify_legal', name: 'Legal pages', maxScore: 4 };
   if (legalCount === 3) {
@@ -96,10 +120,16 @@ export function runShopifyChecks($, html) {
   }
   checks.push(legalCheck);
 
-  // 7. Social media links (2 pts)
-  const socialDomains = ['instagram.com', 'facebook.com', 'tiktok.com', 'twitter.com', 'x.com', 'pinterest.com', 'youtube.com', 'linkedin.com'];
-  const socialLinks = allLinks.filter(l => socialDomains.some(d => l.includes(d)));
-  const uniqueSocials = [...new Set(socialLinks.map(l => socialDomains.find(d => l.includes(d))))];
+  // 7. Social media links (2 pts) — anchor matching on the domain (not raw substring,
+  // which let "x.com" match "index.com"), plus WhatsApp (key channel for ES/LatAm stores)
+  const socialDomains = ['instagram.com', 'facebook.com', 'tiktok.com', 'twitter.com', 'x.com', 'pinterest.com', 'youtube.com', 'linkedin.com', 'whatsapp.com', 'wa.me'];
+  const matchesSocial = (href, domain) => new RegExp(`(?:^|//|\\.)${domain.replace(/\./g, '\\.')}`).test(href);
+  const allHrefs = links.map(l => l.href);
+  const uniqueSocials = [...new Set(
+    allHrefs.map(l => socialDomains.find(d => matchesSocial(l, d)))
+      .filter(Boolean)
+      .map(d => d === 'wa.me' ? 'whatsapp.com' : d)
+  )];
   let socialCheck = { id: 'shopify_social', name: 'Social media links', maxScore: 2 };
   if (uniqueSocials.length >= 2) {
     socialCheck = { ...socialCheck, status: 'pass', score: 2, details: `Social profiles linked: ${uniqueSocials.join(', ')}`, recommendation: null };

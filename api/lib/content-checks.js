@@ -3,6 +3,7 @@
 // Without API key: automated only, scaled to /25 (Phase 1 fallback)
 
 import { load } from 'cheerio';
+import { collectLinks, linkMatches } from './detect-utils.js';
 
 const AI_TIMEOUT_MS = 5000;
 
@@ -173,27 +174,34 @@ async function checkCtaEffectiveness(apiKey, $) {
 }
 
 export async function runContentChecks($, html, baseUrl, openAiKey) {
-  const allLinks = [];
-  $('a[href]').each((_, el) => allLinks.push(($(el).attr('href') || '').toLowerCase()));
+  const links = collectLinks($);
   const htmlLower = html.toLowerCase();
 
-  // 1. About page (3 pts)
-  const hasAbout = allLinks.some(l =>
-    l.includes('/pages/about') || l.includes('/about') ||
-    l.includes('nosotros') || l.includes('quienes-somos') || l.includes('about-us')
-  );
+  // 1. About page (3 pts) — match link text as well as href, since stores often use
+  // custom slugs (e.g. "Sobre nosotros" pointing to /pages/la-empresa)
+  const hasAbout = linkMatches(links, {
+    hrefParts: [
+      '/pages/about', '/about', 'about-us', 'aboutus', 'nosotros', 'quienes-somos',
+      'quienes_somos', 'sobre-nosotros', 'sobre-mi', 'conocenos', 'nuestra-historia',
+      'our-story', 'ourstory', 'who-we-are', 'chi-siamo', 'a-propos', 'uber-uns'
+    ],
+    textParts: [
+      'about', 'sobre nosotros', 'sobre mi', 'quienes somos', 'nuestra historia',
+      'conocenos', 'our story', 'who we are', 'la marca'
+    ],
+  });
   const aboutCheck = hasAbout
     ? { id: 'content_about', name: 'About page', maxScore: 3, status: 'pass', score: 3, details: 'About page linked in navigation or footer.', recommendation: null }
     : { id: 'content_about', name: 'About page', maxScore: 3, status: 'fail', score: 0, details: 'No About page link detected.', recommendation: 'Add an About page telling your story. Customers trust stores with a clear brand story — it significantly improves conversion rates.' };
 
   // 2. Social proof / reviews (4 pts)
   const reviewSignals = [
-    'judge.me', 'yotpo', 'stamped', 'okendo', 'loox', 'reviews.io',
+    'judge.me', 'yotpo', 'stamped', 'okendo', 'loox', 'reviews.io', 'trustpilot',
     'data-product-reviews', 'product-reviews', 'shopify-product-reviews',
     'spr-container', 'jdgm-', 'yotpo-main-widget'
   ];
   const hasReviewApp = reviewSignals.some(s => htmlLower.includes(s));
-  const reviewText = $('[class*="review"], [id*="review"], [class*="rating"], [id*="rating"]').length > 0;
+  const reviewText = $('[class*="review"], [id*="review"], [class*="rating"], [id*="rating"], [class*="testimonial"], [class*="opinion"], [class*="resena"], [class*="valoracion"]').length > 0;
   let reviewCheck;
   if (hasReviewApp) {
     reviewCheck = { id: 'content_reviews', name: 'Social proof (reviews)', maxScore: 4, status: 'pass', score: 4, details: 'Review app detected on the page.', recommendation: null };
@@ -204,8 +212,10 @@ export async function runContentChecks($, html, baseUrl, openAiKey) {
   }
 
   // 3. Blog (3 pts)
-  const hasBlog = allLinks.some(l => l.includes('/blogs/') || l.includes('/blog')) ||
-    $('a[href*="blog"]').length > 0;
+  const hasBlog = linkMatches(links, {
+    hrefParts: ['/blogs/', '/blog'],
+    textParts: ['blog', 'noticias', 'novedades', 'journal', 'revista'],
+  });
   const blogCheck = hasBlog
     ? { id: 'content_blog', name: 'Blog / content hub', maxScore: 3, status: 'pass', score: 3, details: 'Blog or content section linked.', recommendation: null }
     : { id: 'content_blog', name: 'Blog / content hub', maxScore: 3, status: 'fail', score: 0, details: 'No blog or content section detected.', recommendation: 'Start a blog with 4-6 posts per month. Content marketing drives organic traffic and builds brand authority.' };
