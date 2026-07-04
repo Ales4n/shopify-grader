@@ -3,6 +3,7 @@
 // Without API key: automated only, scaled to /25 (Phase 1 fallback)
 
 import { load } from 'cheerio';
+import { collectLinks, linkMatches } from './detect-utils.js';
 
 const AI_TIMEOUT_MS = 5000;
 
@@ -27,6 +28,7 @@ async function callOpenAI(apiKey, systemPrompt, userContent) {
       }),
       signal: controller.signal
     });
+    if (!res.ok) throw new Error(`OpenAI API returned ${res.status}`);
     const data = await res.json();
     const raw = data.choices?.[0]?.message?.content?.trim() || '';
     // GPT sometimes wraps JSON in markdown code fences — strip before parsing
@@ -35,6 +37,25 @@ async function callOpenAI(apiKey, systemPrompt, userContent) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// The model can return score as a string, out of range, or an unknown status.
+// Unsanitized values corrupt the score sums (string concatenation → totals like "1043"
+// or NaN) and break the whole report. Returns null if the result is unusable.
+export function sanitizeAiResult(result, maxScore) {
+  const num = Number(result?.score);
+  if (!Number.isFinite(num)) return null;
+  const score = Math.max(0, Math.min(maxScore, Math.round(num)));
+  const status = ['pass', 'warn', 'fail'].includes(result?.status)
+    ? result.status
+    : (score >= maxScore * 0.8 ? 'pass' : score >= maxScore * 0.4 ? 'warn' : 'fail');
+  const details = typeof result?.details === 'string' && result.details.trim()
+    ? result.details.trim().slice(0, 300)
+    : 'AI analysis completed.';
+  const recommendation = typeof result?.recommendation === 'string' && result.recommendation.trim() && result.recommendation.trim().toLowerCase() !== 'null'
+    ? result.recommendation.trim().slice(0, 300)
+    : null;
+  return { score, status, details, recommendation };
 }
 
 const aiFallback = (id, name, maxScore) => ({
@@ -53,7 +74,9 @@ async function checkHomepageCopy(apiKey, $) {
     console.log('Homepage text length:', bodyText.length);
     const systemPrompt = 'You are an eCommerce copywriting expert. Analyze the following homepage text from a Shopify store. Score it from 0 to 5 based on: clarity of value proposition, persuasive language, brand voice consistency, and call-to-action presence. Respond ONLY with a JSON object: {"score": N, "status": "pass|warn|fail", "details": "one sentence summary", "recommendation": "one sentence actionable tip or null if score >= 4"}';
     const result = await callOpenAI(apiKey, systemPrompt, bodyText);
-    return { ...base, score: result.score, status: result.status, details: result.details, recommendation: result.recommendation ?? null };
+    const clean = sanitizeAiResult(result, base.maxScore);
+    if (!clean) return aiFallback(base.id, base.name, base.maxScore);
+    return { ...base, ...clean };
   } catch (err) {
     console.log('Homepage AI error:', err);
     return aiFallback(base.id, base.name, base.maxScore);
@@ -83,9 +106,10 @@ async function checkProductDescription(apiKey, $, baseUrl) {
     let productHtml;
     try {
       const res = await fetch(productUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ShopifyGrader/1.0; +https://shopifystoregrader.com)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' },
         signal: controller.signal
       });
+      if (!res.ok) throw new Error(`Product page returned ${res.status}`);
       productHtml = await res.text();
     } finally {
       clearTimeout(timer);
@@ -114,7 +138,9 @@ async function checkProductDescription(apiKey, $, baseUrl) {
 
     const systemPrompt = 'You are an eCommerce copywriting expert. Analyze this product description from a Shopify store. Score from 0 to 5 based on: does it sell benefits (not just features), readability, detail level, and emotional appeal. Respond ONLY with JSON: {"score": N, "status": "pass|warn|fail", "details": "one sentence", "recommendation": "one sentence or null"}';
     const result = await callOpenAI(apiKey, systemPrompt, desc.slice(0, 2000));
-    return { ...base, score: result.score, status: result.status, details: result.details, recommendation: result.recommendation ?? null };
+    const clean = sanitizeAiResult(result, base.maxScore);
+    if (!clean) return aiFallback(base.id, base.name, base.maxScore);
+    return { ...base, ...clean };
   } catch (_) {
     return aiFallback(base.id, base.name, base.maxScore);
   }
@@ -139,34 +165,43 @@ async function checkCtaEffectiveness(apiKey, $) {
 
     const systemPrompt = 'You are a CRO expert. Here are the main CTAs/buttons found on a Shopify store homepage. Score from 0 to 5 based on: clarity, action-orientation, urgency, and variety. Respond ONLY with JSON: {"score": N, "status": "pass|warn|fail", "details": "one sentence", "recommendation": "one sentence or null"}';
     const result = await callOpenAI(apiKey, systemPrompt, ctaTexts.slice(0, 20).join('\n'));
-    return { ...base, score: result.score, status: result.status, details: result.details, recommendation: result.recommendation ?? null };
+    const clean = sanitizeAiResult(result, base.maxScore);
+    if (!clean) return aiFallback(base.id, base.name, base.maxScore);
+    return { ...base, ...clean };
   } catch (_) {
     return aiFallback(base.id, base.name, base.maxScore);
   }
 }
 
 export async function runContentChecks($, html, baseUrl, openAiKey) {
-  const allLinks = [];
-  $('a[href]').each((_, el) => allLinks.push(($(el).attr('href') || '').toLowerCase()));
+  const links = collectLinks($);
   const htmlLower = html.toLowerCase();
 
-  // 1. About page (3 pts)
-  const hasAbout = allLinks.some(l =>
-    l.includes('/pages/about') || l.includes('/about') ||
-    l.includes('nosotros') || l.includes('quienes-somos') || l.includes('about-us')
-  );
+  // 1. About page (3 pts) — match link text as well as href, since stores often use
+  // custom slugs (e.g. "Sobre nosotros" pointing to /pages/la-empresa)
+  const hasAbout = linkMatches(links, {
+    hrefParts: [
+      '/pages/about', '/about', 'about-us', 'aboutus', 'nosotros', 'quienes-somos',
+      'quienes_somos', '/pages/sobre', 'sobre-nosotros', 'conocenos', 'nuestra-historia', '/pages/historia',
+      'our-story', 'ourstory', 'who-we-are', 'chi-siamo', 'a-propos', 'uber-uns'
+    ],
+    textParts: [
+      'about', 'sobre nosotros', 'sobre mi', 'quienes somos', 'nuestra historia',
+      'conocenos', 'our story', 'who we are', 'la marca'
+    ],
+  });
   const aboutCheck = hasAbout
     ? { id: 'content_about', name: 'About page', maxScore: 3, status: 'pass', score: 3, details: 'About page linked in navigation or footer.', recommendation: null }
     : { id: 'content_about', name: 'About page', maxScore: 3, status: 'fail', score: 0, details: 'No About page link detected.', recommendation: 'Add an About page telling your story. Customers trust stores with a clear brand story — it significantly improves conversion rates.' };
 
   // 2. Social proof / reviews (4 pts)
   const reviewSignals = [
-    'judge.me', 'yotpo', 'stamped', 'okendo', 'loox', 'reviews.io',
+    'judge.me', 'yotpo', 'stamped', 'okendo', 'loox', 'reviews.io', 'trustpilot',
     'data-product-reviews', 'product-reviews', 'shopify-product-reviews',
     'spr-container', 'jdgm-', 'yotpo-main-widget'
   ];
   const hasReviewApp = reviewSignals.some(s => htmlLower.includes(s));
-  const reviewText = $('[class*="review"], [id*="review"], [class*="rating"], [id*="rating"]').length > 0;
+  const reviewText = $('[class*="review"], [id*="review"], [class*="rating"], [id*="rating"], [class*="testimonial"], [class*="opinion"], [class*="resena"], [class*="valoracion"]').length > 0;
   let reviewCheck;
   if (hasReviewApp) {
     reviewCheck = { id: 'content_reviews', name: 'Social proof (reviews)', maxScore: 4, status: 'pass', score: 4, details: 'Review app detected on the page.', recommendation: null };
@@ -177,8 +212,10 @@ export async function runContentChecks($, html, baseUrl, openAiKey) {
   }
 
   // 3. Blog (3 pts)
-  const hasBlog = allLinks.some(l => l.includes('/blogs/') || l.includes('/blog')) ||
-    $('a[href*="blog"]').length > 0;
+  const hasBlog = linkMatches(links, {
+    hrefParts: ['/blogs/', '/blog'],
+    textParts: ['blog', 'noticias', 'novedades', 'journal', 'revista'],
+  });
   const blogCheck = hasBlog
     ? { id: 'content_blog', name: 'Blog / content hub', maxScore: 3, status: 'pass', score: 3, details: 'Blog or content section linked.', recommendation: null }
     : { id: 'content_blog', name: 'Blog / content hub', maxScore: 3, status: 'fail', score: 0, details: 'No blog or content section detected.', recommendation: 'Start a blog with 4-6 posts per month. Content marketing drives organic traffic and builds brand authority.' };

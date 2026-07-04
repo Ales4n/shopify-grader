@@ -2,12 +2,28 @@ import fetch from 'node-fetch';
 
 const PAGESPEED_API = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 
+// PageSpeed runs Lighthouse live and can take 60-90s on slow stores. Without this
+// timeout the serverless function hits Vercel's maxDuration and dies with a raw 504,
+// so the graceful fallback below never runs and the user gets no report at all.
+const PAGESPEED_TIMEOUT_MS = 25000;
+
 export async function callPageSpeed(url, strategy, apiKey) {
   const params = new URLSearchParams({ url, strategy, category: 'performance' });
   if (apiKey) params.set('key', apiKey);
-  const res = await fetch(`${PAGESPEED_API}?${params}`);
-  if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PAGESPEED_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PAGESPEED_API}?${params}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`PageSpeed API returned ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`PageSpeed API timed out after ${PAGESPEED_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getAuditValue(data, auditId) {
@@ -75,6 +91,13 @@ export async function runPerformanceChecks($, url, apiKey) {
     console.log('PageSpeed API error:', err.message);
   }
 
+  // PageSpeed can return 200 with a runtimeError and no score (e.g. the store blocks
+  // Lighthouse) — without this guard mobileScore becomes NaN and the report is garbage.
+  const rawPerfScore = mobileData?.lighthouseResult?.categories?.performance?.score;
+  if (!apiError && !Number.isFinite(rawPerfScore)) {
+    apiError = mobileData?.lighthouseResult?.runtimeError?.message || 'PageSpeed returned no performance score';
+  }
+
   if (apiError || !mobileData) {
     const fallback = (id, name, max) => ({
       id, name, status: 'warn', score: Math.floor(max / 2), maxScore: max,
@@ -88,7 +111,7 @@ export async function runPerformanceChecks($, url, apiKey) {
     return { score, max, checks, meta: { apiError } };
   }
 
-  const mobileScore = mobileData.lighthouseResult?.categories?.performance?.score * 100;
+  const mobileScore = rawPerfScore * 100;
 
   // Mobile score (5 pts)
   let mobileCheck = { id: 'perf_mobile', name: 'Mobile PageSpeed score', maxScore: 5 };

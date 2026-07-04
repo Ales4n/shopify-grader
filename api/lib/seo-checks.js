@@ -44,12 +44,18 @@ export function runSeoChecks($, html) {
   }
   checks.push(h1Check);
 
-  // 4. Image alt text (4 pts)
-  const allImgs = $('img');
-  const totalImgs = allImgs.length;
+  // 4. Image alt text (4 pts) — skip tracking pixels and explicitly decorative images,
+  // which are correct without alt text and skewed the coverage percentage
+  let totalImgs = 0;
   let imgsWithAlt = 0;
-  allImgs.each((_, el) => {
-    if ($(el).attr('alt') !== undefined && $(el).attr('alt') !== '') imgsWithAlt++;
+  $('img').each((_, el) => {
+    const $el = $(el);
+    const src = $el.attr('src') || $el.attr('data-src') || '';
+    if ($el.attr('width') === '1' || $el.attr('height') === '1' || /pixel|spacer|tracking/i.test(src)) return;
+    if ($el.attr('role') === 'presentation' || $el.attr('aria-hidden') === 'true') return;
+    totalImgs++;
+    const alt = $el.attr('alt');
+    if (alt !== undefined && alt.trim() !== '') imgsWithAlt++;
   });
   const altPct = totalImgs > 0 ? (imgsWithAlt / totalImgs) * 100 : 100;
   let altCheck = { id: 'seo_img_alt', name: 'Image alt text', maxScore: 4 };
