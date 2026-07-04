@@ -1,4 +1,4 @@
-import { fetchAndParse, isShopifyStore, isHeadlessShopify } from './lib/scraper.js';
+import { fetchAndParse, isShopifyStore, isHeadlessShopify, looksLikeBotChallenge } from './lib/scraper.js';
 import { runSeoChecks } from './lib/seo-checks.js';
 import { runPerformanceChecks } from './lib/performance.js';
 import { runShopifyChecks } from './lib/shopify-checks.js';
@@ -14,8 +14,28 @@ function normalizeUrl(input) {
 
 function isValidUrl(url) {
   try {
-    new URL(url);
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const host = u.hostname;
+    // Require a public-looking hostname; block internal targets (localhost, private IPs)
+    if (!host.includes('.') || host.includes(':')) return false;
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) {
+      const a = Number(ipv4[1]), b = Number(ipv4[2]);
+      if (a === 0 || a === 10 || a === 127 || a >= 224 ||
+          (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+          (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return false;
+    }
     return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isPasswordPage(finalUrl) {
+  try {
+    return new URL(finalUrl).pathname.replace(/\/+$/, '').endsWith('/password');
   } catch (_) {
     return false;
   }
@@ -57,6 +77,12 @@ export default async function handler(req, res) {
     const { html, $, finalUrl, headers } = await fetchAndParse(url);
 
     if (!isShopifyStore(html)) {
+      if (looksLikeBotChallenge(html)) {
+        return res.status(422).json({
+          error: "This store's bot protection blocked our request. Try again in a few minutes.",
+          isShopify: null
+        });
+      }
       if (isHeadlessShopify(html, headers)) {
         return res.status(422).json({
           error: 'This appears to be a headless Shopify store (Hydrogen/custom frontend). Our tool currently only analyzes standard Shopify themes. Headless stores require a manual audit.',
@@ -67,6 +93,15 @@ export default async function handler(req, res) {
       return res.status(422).json({
         error: "This doesn't appear to be a Shopify store. This tool only works with Shopify.",
         isShopify: false
+      });
+    }
+
+    // Shopify redirects locked storefronts to /password — analyzing that page produces a bogus report
+    if (isPasswordPage(finalUrl || url)) {
+      return res.status(422).json({
+        error: 'This store is password-protected, so we can only see its password page. Remove the password (or try again after launch) to get a full report.',
+        isShopify: true,
+        isPasswordProtected: true
       });
     }
 
@@ -109,10 +144,13 @@ export default async function handler(req, res) {
     if (err.isUserFacing) {
       return res.status(422).json({ error: err.message });
     }
-    if (err.message?.includes('timed out') || err.message?.includes('AbortError')) {
+    if (err.message?.includes('timed out') || err.name === 'AbortError') {
       return res.status(504).json({ error: 'Analysis is taking longer than expected. Try again in a minute.' });
     }
-    if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.message?.includes('fetch')) {
+    const netCodes = ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'EHOSTUNREACH',
+      'ERR_TLS_CERT_ALTNAME_INVALID', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT'];
+    const errCode = err.code || err.cause?.code;
+    if (netCodes.includes(errCode) || err.name === 'FetchError' || err.message?.includes('fetch failed') || err.message?.includes('redirect')) {
       return res.status(422).json({ error: "We couldn't reach this website. Check the URL and try again." });
     }
     return res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });

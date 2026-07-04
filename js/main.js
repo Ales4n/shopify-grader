@@ -54,6 +54,3 @@ form.addEventListener('submit', (e) => {
 });
 
 input.addEventListener('input', clearError);
-input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') form.dispatchEvent(new Event('submit'));
-});

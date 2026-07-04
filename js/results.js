@@ -186,13 +186,20 @@ async function runAnalysis() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(90000),
     });
 
-    const data = await res.json();
+    // When the serverless function is killed (e.g. Vercel timeout) the body is
+    // plain text, not JSON — parsing it blindly used to throw and mask the real error.
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
     stopLoadingAnimation();
 
-    if (!res.ok || data.error) {
-      showError(data.error || 'An unexpected error occurred. Please try again.');
+    if (!res.ok || !data || data.error) {
+      const fallbackMsg = (res.status === 504 || res.status === 502 || res.status === 408)
+        ? 'Analysis is taking longer than expected. Try again in a minute.'
+        : 'An unexpected error occurred. Please try again.';
+      showError(data?.error || fallbackMsg);
       return;
     }
 
@@ -209,7 +216,11 @@ async function runAnalysis() {
 
   } catch (err) {
     stopLoadingAnimation();
-    showError('An unexpected error occurred. Please check your connection and try again.');
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      showError('Analysis is taking longer than expected. Try again in a minute.');
+    } else {
+      showError('An unexpected error occurred. Please check your connection and try again.');
+    }
   }
 }
 
