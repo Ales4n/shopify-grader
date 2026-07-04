@@ -64,8 +64,10 @@ export function runShopifyChecks($, html) {
   if (navAnchors.length === 0) navAnchors = $('.site-nav a[href], #site-navigation a[href]');
   const uniqueNavHrefs = new Set();
   navAnchors.each((_, el) => {
-    const href = ($(el).attr('href') || '').split('#')[0].replace(/\/+$/, '');
-    if (href && !href.startsWith('javascript:')) uniqueNavHrefs.add(href);
+    let href = ($(el).attr('href') || '').split('#')[0].trim();
+    if (!href || href.startsWith('javascript:')) return;
+    href = href.replace(/\/+$/, '') || '/';
+    uniqueNavHrefs.add(href);
   });
   const topNavCount = uniqueNavHrefs.size;
   let navCheck = { id: 'shopify_nav', name: 'Navigation depth', maxScore: 4 };

@@ -182,7 +182,7 @@ export async function runContentChecks($, html, baseUrl, openAiKey) {
   const hasAbout = linkMatches(links, {
     hrefParts: [
       '/pages/about', '/about', 'about-us', 'aboutus', 'nosotros', 'quienes-somos',
-      'quienes_somos', 'sobre-nosotros', 'sobre-mi', 'conocenos', 'nuestra-historia',
+      'quienes_somos', '/pages/sobre', 'conocenos', 'nuestra-historia', '/pages/historia',
       'our-story', 'ourstory', 'who-we-are', 'chi-siamo', 'a-propos', 'uber-uns'
     ],
     textParts: [

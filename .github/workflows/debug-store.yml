@@ -7,9 +7,6 @@ on:
         description: "Store URL to analyze"
         required: true
         default: "https://deespecialidadcafe.com/"
-  push:
-    branches:
-      - claude/shopify-audit-url-failures-4nc677
 
 jobs:
   debug:
